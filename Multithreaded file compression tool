@@ -1,0 +1,113 @@
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <thread>
+#include <zlib.h>
+
+// Function to compress a chunk of data using zlib
+void compressChunk(const char* input, char* output, size_t inputSize) {
+    uLongf compressedSize = inputSize * 1.1; // Compress size estimation
+    int result = compress((Bytef*)output, &compressedSize, (const Bytef*)input, inputSize);
+    if (result != Z_OK) {
+        std::cerr << "Compression failed!" << std::endl;
+    }
+}
+
+// Function to compress the file
+void compressFile(const std::string& inputFile, const std::string& outputFile) {
+    std::ifstream in(inputFile, std::ios::binary);
+    in.seekg(0, std::ios::end);
+    size_t fileSize = in.tellg();
+    in.seekg(0, std::ios::beg);
+
+    std::vector<char> inputBuffer(fileSize);
+    in.read(inputBuffer.data(), fileSize);
+    in.close();
+
+    size_t chunkSize = fileSize / 2;  // Divide into 2 chunks
+    std::vector<std::thread> threads;
+    std::vector<std::vector<char>> compressedChunks(2);
+
+    // Start compression on multiple threads
+    for (int i = 0; i < 2; ++i) {
+        size_t start = i * chunkSize;
+        size_t end = (i == 1) ? fileSize : (i + 1) * chunkSize;
+        size_t size = end - start;
+        compressedChunks[i].resize(size * 1.1);  // Extra space for compression
+        threads.push_back(std::thread(compressChunk, inputBuffer.data() + start,
+                                      compressedChunks[i].data(), size));
+    }
+
+    // Wait for all threads to finish
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    // Write the compressed data to the output file
+    std::ofstream out(outputFile, std::ios::binary);
+    for (const auto& chunk : compressedChunks) {
+        out.write(chunk.data(), chunk.size());
+    }
+    out.close();
+
+    std::cout << "Compression complete!" << std::endl;
+}
+
+// Function to decompress a chunk of data using zlib
+void decompressChunk(const char* input, char* output, size_t inputSize, size_t outputSize) {
+    uLongf decompressedSize = outputSize;
+    int result = uncompress((Bytef*)output, &decompressedSize, (const Bytef*)input, inputSize);
+    if (result != Z_OK) {
+        std::cerr << "Decompression failed!" << std::endl;
+    }
+}
+
+// Function to decompress the file
+void decompressFile(const std::string& inputFile, const std::string& outputFile) {
+    std::ifstream in(inputFile, std::ios::binary);
+    in.seekg(0, std::ios::end);
+    size_t fileSize = in.tellg();
+    in.seekg(0, std::ios::beg);
+
+    std::vector<char> inputBuffer(fileSize);
+    in.read(inputBuffer.data(), fileSize);
+    in.close();
+
+    size_t chunkSize = fileSize / 2;  // Divide into 2 chunks
+    std::vector<std::thread> threads;
+    std::vector<std::vector<char>> decompressedChunks(2);
+
+    // Start decompression on multiple threads
+    for (int i = 0; i < 2; ++i) {
+        size_t start = i * chunkSize;
+        size_t end = (i == 1) ? fileSize : (i + 1) * chunkSize;
+        size_t size = end - start;
+        decompressedChunks[i].resize(size * 4);  // Assuming decompressed data may be larger
+        threads.push_back(std::thread(decompressChunk, inputBuffer.data() + start,
+                                      decompressedChunks[i].data(), size, size * 4));
+    }
+
+    // Wait for all threads to finish
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    // Write the decompressed data to the output file
+    std::ofstream out(outputFile, std::ios::binary);
+    for (const auto& chunk : decompressedChunks) {
+        out.write(chunk.data(), chunk.size());
+    }
+    out.close();
+
+    std::cout << "Decompression complete!" << std::endl;
+}
+
+int main() {
+    // Compress the file
+    compressFile("example.txt", "example_compressed.gz");
+
+    // Decompress the file
+    decompressFile("example_compressed.gz", "example_decompressed.txt");
+
+    return 0;
+}
